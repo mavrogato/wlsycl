@@ -1,49 +1,39 @@
 
 #include <iostream>
+#include <bitset>
 #include <string_view>
 
 #include <CL/sycl.hpp>
 
-//!!!
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-//!!!
 
 #include "wayland-client-helper.hpp"
 
 int main() {
     static auto xdg_runtime_dir = getenv("XDG_RUNTIME_DIR");
     auto display = attach_unique(wl_display_connect(nullptr));
-    auto globals = register_global<wl_compositor, wl_shell, wl_shm, wl_seat>(display.get());
-    auto& [compositor, shell, shm, seat] = globals;
+    auto [compositor, shell, shm, seat] = register_global<wl_compositor,
+                                                          wl_shell,
+                                                          wl_shm,
+                                                          wl_seat>(display.get());
+    static constexpr auto required_shm_format = WL_SHM_FORMAT_ARGB8888;
+    bool required_shm_format_supported = false;
     {
         static constexpr wl_shm_listener listener {
-            .format = [](auto, auto, uint32_t format) noexcept {
-                std::cout << "format supported: " << format << std::endl;
+            .format = [](void* data, auto, uint32_t format) noexcept {
+                if (required_shm_format == format) {
+                    *reinterpret_cast<bool*>(data) = true;
+                }
+                std::cout << "supported format: " << std::bitset<32>(format) << std::endl;
             },
         };
-        std::cout << "retrieving memory formats..." << std::endl;
-        wl_shm_add_listener(shm.get(), &listener, nullptr);
-        wl_display_roundtrip(display.get());
-        wl_display_roundtrip(display.get());
-        wl_display_roundtrip(display.get());
-        wl_display_roundtrip(display.get());
+        if (0 != wl_shm_add_listener(shm.get(), &listener, &required_shm_format_supported)) {
+            std::cerr << "wl_shm_add_listener failed..." << std::endl;
+            return -1;
+        }
     }
-    auto surface = attach_unique(wl_compositor_create_surface(compositor.get()));
-    auto shell_surface = attach_unique(wl_shell_get_shell_surface(shell.get(), surface.get()));
-    {
-        static constexpr wl_shell_surface_listener listener {
-            .ping = [](auto, auto shell_surface, auto serial) noexcept {
-                wl_shell_surface_pong(shell_surface, serial);
-                std::cerr << "pinged and ponged." << std::endl;
-            },
-            .configure  = [](auto...) noexcept { },
-            .popup_done = [](auto...) noexcept { },
-        };
-        wl_shell_surface_add_listener(shell_surface.get(), &listener, nullptr);
-    }
-    wl_shell_surface_set_toplevel(shell_surface.get());
     {
         static constexpr wl_seat_listener listener {
             .capabilities = [](void*, wl_seat* seat_raw, uint32_t caps) noexcept {
@@ -67,6 +57,22 @@ int main() {
             return -1;
         }
     }
+    wl_display_roundtrip(display.get());
+    assert(required_shm_format_supported);
+    auto surface = attach_unique(wl_compositor_create_surface(compositor.get()));
+    auto shell_surface = attach_unique(wl_shell_get_shell_surface(shell.get(), surface.get()));
+    {
+        static constexpr wl_shell_surface_listener listener {
+            .ping = [](auto, auto shell_surface, auto serial) noexcept {
+                wl_shell_surface_pong(shell_surface, serial);
+                std::cerr << "pinged and ponged." << std::endl;
+            },
+            .configure  = [](auto...) noexcept { },
+            .popup_done = [](auto...) noexcept { },
+        };
+        wl_shell_surface_add_listener(shell_surface.get(), &listener, nullptr);
+    }
+    wl_shell_surface_set_toplevel(shell_surface.get());
     static int key_input = 0;
     auto keyboard = attach_unique(wl_seat_get_keyboard(seat.get()));
     {
@@ -105,19 +111,6 @@ int main() {
             .axis_discrete = [](auto...) noexcept { },
         };
         wl_pointer_add_listener(pointer.get(), &listener, nullptr);
-    }
-    auto touch = attach_unique(wl_seat_get_touch(seat.get()));
-    {
-        static constexpr wl_touch_listener listener {
-            .down = [](auto...) noexcept { },
-            .up = [](auto...) noexcept { },
-            .motion = [](auto...) noexcept { },
-            .frame = [](auto...) noexcept { },
-            .cancel = [](auto...) noexcept { },
-            .shape = [](auto...) noexcept { },
-            .orientation = [](auto...) noexcept { },
-        };
-        wl_touch_add_listener(touch.get(), &listener, nullptr);
     }
     constexpr static auto create_buffer = [](wl_shm* shm, int cx, int cy) noexcept
         -> std::pair<decltype (attach_unique(std::declval<wl_buffer*>())), uint32_t*>

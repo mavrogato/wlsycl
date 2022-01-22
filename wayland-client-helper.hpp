@@ -157,7 +157,7 @@ auto register_global(wl_display* display) noexcept {
         .global_remove = [](auto...) noexcept { },
     };
     wl_registry_add_listener(registry.get(), &listener, &result);
-    wl_display_dispatch(display);
+    //wl_display_dispatch(display);
     wl_display_roundtrip(display);
     return tentative_solution::transform_each(result);
 }
