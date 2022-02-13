@@ -22,6 +22,10 @@ target_link_libraries(${PROJ}
   PRIVATE
   wayland-client)
 
-add_custom_target(run
+add_custom_target(debug
   DEPENDS ${PROJ}
   COMMAND WAYLAND_DEBUG=1 ./${PROJ})
+
+add_custom_target(run
+  DEPENDS ${PROJ}
+  COMMAND ${PROJ})

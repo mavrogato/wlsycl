@@ -143,8 +143,8 @@ int main() {
         pool = nullptr;
         return std::make_pair(std::move(buff), data);
     };
-    int cx = 1920;
-    int cy = 1080;
+    constexpr int cx = 1920;
+    constexpr int cy = 1080;
     auto [ buff, pixel ] = create_buffer(shm.get(), cx, cy);
     {
         static constexpr wl_buffer_listener listener {
@@ -152,9 +152,38 @@ int main() {
                 std::cerr << "***** buffer released." << std::endl;
             },
         };
+	wl_buffer_add_listener(buff.get(), &listener, nullptr);
     }
-    for (int i = 0; i < cx * cy; ++i) {
-        *pixel++ = 0x800000ff;
+    // for (int i = 0; i < cx * cy; ++i) {
+    //     *pixel++ = 0x800000ff;
+    // }
+    {
+        //auto pixel2 = new uint32_t[cx * cy];
+        sycl::range<1> r(cx * cy);
+        sycl::buffer d(pixel, r);
+        sycl::queue queue;
+        queue.submit([&](sycl::handler& h) {
+            auto a = d.get_access<sycl::access::mode::write>(h);
+            h.parallel_for(r, [=](sycl::id<> idx) {
+                a[idx] = 0x4000ff00;
+            });
+        });
+        queue.wait();
+        sycl::host_accessor D(d, sycl::read_only);
+        std::cout << std::bitset<32>(pixel[0]) << std::endl;
+        // for (int i = 0; i < cx*cy; ++i) {
+        //     *pixel++ = D[i];
+        // }
+        // cl::sycl::buffer d(pixel, cl::sycl::range<2>(cx, cy));
+        // cl::sycl::queue queue;
+        // queue.submit([&](cl::sycl::handler& cgh) {
+        //     auto a = d.get_access<cl::sycl::access::mode::read_write>(cgh);
+        //     cgh.parallel_for<class simple_test>(
+        //         cl::sycl::range<2>(cx, cy),
+        //         [=](cl::sycl::id<2> idx) {
+        //             a[idx] = 0xff00ff00;
+        //         });
+        // });
     }
     wl_surface_frame(surface.get());
     wl_surface_attach(surface.get(), buff.get(), 0, 0);
